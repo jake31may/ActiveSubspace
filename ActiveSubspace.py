@@ -14,21 +14,25 @@ from kneed import KneeLocator
 
 class AS_model:
     '''Builds an active subspace from an initial sample,'''
-    def __init__(self,dims=11,nModes=10, CovarianceMatrix = 'AS_sum'):
+    def __init__(self,dims=11,nModes=10, CovarianceMatrix = None):
         ''''Initalises Active subspace model'''
 
-        self.CovList = list(['AS_sum','AS_product','AS_transform']) # List of available multi-output covariance matrices
+        self.CovList = list([AS_sum,AS_product,AS_transform]) # List of available multi-output covariance matrices
         
         if all([isinstance(dims, int), isinstance(nModes, int)]) == True: # Checks if inputs are integers
            self.dims = dims
            self.nModes = nModes
         else:
             raise TypeError('Dimensions and number of modes must be an integer')
-                
-        if self.CovList.count(CovarianceMatrix)== 1: # Checks if Cov matrix setting is entered correctly
-            self.Cov = CovarianceMatrix
-        else:
-            raise TypeError('Covariance matrix does not exist. Use any of the following: \n AS_sum, AS_product, AS_transform')
+        
+            
+        if CovarianceMatrix is None:
+            self.Cov = AS_sum
+        
+        #if self.CovList.count(CovarianceMatrix)== 1: # Checks if Cov matrix setting is entered correctly
+        #    self.Cov = CovarianceMatrix
+        #else:
+        #    raise TypeError('Covariance matrix does not exist. Use any of the following: \n AS_sum, AS_product, AS_transform')
         
         self.eng = matlab.engine.start_matlab()
         
@@ -94,7 +98,7 @@ class AS_model:
         
         print('Generating new sample points...')
         if sampler == 'lhs':
-            samples = sample_range[0] + (sample_range[1]-sample_range[0])*lhs(self.dims,n_samples)
+            samples = self.range[0] + (self.range[1]-self.range[0])*lhs(self.dims,n_samples)
         
         # Could add other samplers here...
         #elif sampler == 'sobol':
@@ -117,80 +121,80 @@ class AS_model:
             self.AS_locator = AS_locator    # Sets locator (default: 'knee')
 
         
-        W,V = self.CovarianceMatrix()
+        W,V = self.Cov(Gradients=self.Gradients,nModes=self.nModes,dims=self.dims)
         
-        if AS_locator == 'knee':
+        if self.AS_locator == 'knee':
             k = KneeLocator(range(self.dims),W,direction='decreasing',curve='convex').knee
         
-        elif AS_locator == 'tolerance':
+        elif self.AS_locator == 'tolerance':
             self.tol = int(input ("What is the tolerance for active variables? "))
             k = AS_LocTol(Eigenvalues = W,tolerance = self.tol)
         else:
             raise TypeError('Active subspace locator not found')
             return
         
-        return W[:,:k],V[:,:k]
+        return W[:k],V[:,:k]
             
     
-    #-------------------------------------------------------------------------
-    # Multi-output covariance functions
-    def AS_sum(self):
-        """ Produces multi-output covariance matrix by summing"""
-        nSamples = np.shape(self.Gradients)[0]
-        C = np.zeros([self.dims,self.dims])
-        for i in range(nSamples):
-            c = np.reshape(self.Gradients[i,:],[self.nModes,self.dims])
-            C = (c.T @ c) + C
-        C /= nSamples
-        
-        w, v = np.linalg.eig(C)
-        
-        w = np.real(w)
-        idx = w.argsort()[::-1]   
-        w = w[idx]
-        v = v[:,idx]
-        return w,np.abs(v)
+#----------------------------------------------------------------------------
+# Multi-output covariance functions
+def AS_sum(Gradients,nModes,dims):
+    """ Produces multi-output covariance matrix by summing"""
+    nSamples = np.shape(Gradients)[0]
+    C = np.zeros([dims,dims])
+    for i in range(nSamples):
+        c = np.reshape(Gradients[i,:],[nModes,dims])
+        C = (c.T @ c) + C
+    C /= nSamples
+    
+    w, v = np.linalg.eig(C)
+    
+    w = np.real(w)
+    idx = w.argsort()[::-1]   
+    w = w[idx]
+    v = v[:,idx]
+    return w,np.abs(v)
 
-    def AS_product(self):
-        """" Produces multi-output covariance matrix by vectorising gradients """
-        nSamples = np.shape(self.Gradients)[0]
-        C = np.zeros([self.dims**2,self.dims**2])
-        for i in range(nSamples):
-           c = self.Gradients[i,:]
-           C = (c.T @ c) + C
-       
-        C /= nSamples
-       
-        w, v = np.linalg.eig(C)
-        
-        w = np.real(w)
-        idx = w.argsort()[::-1]   
-        w = w[idx]
-        v = v[:,idx]
-        
-        return w,np.abs(v)
+def AS_product(self):
+    """" Produces multi-output covariance matrix by vectorising gradients """
+    nSamples = np.shape(self.Gradients)[0]
+    C = np.zeros([self.dims**2,self.dims**2])
+    for i in range(nSamples):
+       c = self.Gradients[i,:]
+       C = (c.T @ c) + C
+   
+    C /= nSamples
+   
+    w, v = np.linalg.eig(C)
+    
+    w = np.real(w)
+    idx = w.argsort()[::-1]   
+    w = w[idx]
+    v = v[:,idx]
+    
+    return w,np.abs(v)
 
-    def AS_transform(self):
-        """" Produces multi-output covariance matrix by vectorising gradients,
-        then transforming"""
-        nSamples = np.shape(self.Gradients)[0]
-        C = np.zeros([self.dims**2,self.dims**2])
-        for i in range(nSamples):
-           c = self.Gradients[i,:]
-           C = (c.T @ c) + C
-        C /= nSamples
-       
-        T = np.tile(np.eye(self.dims), self.dims)
-        C = (T @ C) @ T.T
-       
-        w, v = np.linalg.eig(C)
-        
-        w = np.real(w)
-        idx = w.argsort()[::-1]   
-        w = w[idx]
-        v = v[:,idx]
-        
-        return w,np.abs(v)
+def AS_transform(self):
+    """" Produces multi-output covariance matrix by vectorising gradients,
+    then transforming"""
+    nSamples = np.shape(self.Gradients)[0]
+    C = np.zeros([self.dims**2,self.dims**2])
+    for i in range(nSamples):
+       c = self.Gradients[i,:]
+       C = (c.T @ c) + C
+    C /= nSamples
+   
+    T = np.tile(np.eye(self.dims), self.dims)
+    C = (T @ C) @ T.T
+   
+    w, v = np.linalg.eig(C)
+    
+    w = np.real(w)
+    idx = w.argsort()[::-1]   
+    w = w[idx]
+    v = v[:,idx]
+    
+    return w,np.abs(v)
 
 #-----------------------------------------------------------------------------
 # Other Functions
