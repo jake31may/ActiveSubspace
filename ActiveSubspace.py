@@ -114,12 +114,14 @@ class AS_model:
         self.Gradients = np.append(self.Gradients,Gradients,axis=0)
     
     
-    def FindSubspace(self,AS_locator = None):
+    def FindSubspace(self,CovarianceMatrix= None,AS_locator = None,tolerance=0.01):
         ''' Determine active subspace by selecting active variables. Multiple methods available.'''
         
         if AS_locator is not None:
             self.AS_locator = AS_locator    # Sets locator (default: 'knee')
-
+        
+        if CovarianceMatrix is not None:
+            self.Cov = CovarianceMatrix
         
         W,V = self.Cov(Gradients=self.Gradients,nModes=self.nModes,dims=self.dims)
         
@@ -127,7 +129,7 @@ class AS_model:
             k = KneeLocator(range(self.dims),W,direction='decreasing',curve='convex').knee
         
         elif self.AS_locator == 'tolerance':
-            self.tol = int(input ("What is the tolerance for active variables? "))
+            self.tol = tolerance
             k = AS_LocTol(Eigenvalues = W,tolerance = self.tol)
         else:
             raise TypeError('Active subspace locator not found')
@@ -155,12 +157,12 @@ def AS_sum(Gradients,nModes,dims):
     v = v[:,idx]
     return w,np.abs(v)
 
-def AS_product(self):
+def AS_product(Gradients,nModes,dims):
     """" Produces multi-output covariance matrix by vectorising gradients """
-    nSamples = np.shape(self.Gradients)[0]
-    C = np.zeros([self.dims**2,self.dims**2])
+    nSamples = np.shape(Gradients)[0]
+    C = np.zeros([dims**2,dims**2])
     for i in range(nSamples):
-       c = self.Gradients[i,:]
+       c = Gradients[i,:]
        C = (c.T @ c) + C
    
     C /= nSamples
@@ -174,17 +176,17 @@ def AS_product(self):
     
     return w,np.abs(v)
 
-def AS_transform(self):
+def AS_transform(Gradients,nModes,dims):
     """" Produces multi-output covariance matrix by vectorising gradients,
     then transforming"""
-    nSamples = np.shape(self.Gradients)[0]
-    C = np.zeros([self.dims**2,self.dims**2])
+    nSamples = np.shape(Gradients)[0]
+    C = np.zeros([dims**2,dims**2])
     for i in range(nSamples):
-       c = self.Gradients[i,:]
+       c = Gradients[i,:]
        C = (c.T @ c) + C
     C /= nSamples
    
-    T = np.tile(np.eye(self.dims), self.dims)
+    T = np.tile(np.eye(dims), dims)
     C = (T @ C) @ T.T
    
     w, v = np.linalg.eig(C)
@@ -205,7 +207,7 @@ def MAC_Error(V1,V2):
     denom2 = np.diag(np.transpose(V2) @ V2)
     denom = denom1 @ denom2
     
-    return np.sum(np.diag(nom/denom))
+    return 1-np.sum(np.diag(nom/denom))
 
 def AS_LocTol(Eigenvalues,tolerance):
     ''' Locates active variables based on specified tolerance'''
